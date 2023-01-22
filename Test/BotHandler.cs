@@ -1,17 +1,16 @@
 ﻿using Telegram.Bot;
-using Telegram.Bot.Exceptions;
-using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using TelegramBotService;
 
 namespace Test;
 
-public class BotHandler : IUpdateHandler
+public class BotHandler : ITelegramBotHandler
 {
-    private readonly ILogger<BotHandler> _logger;
+    public int Order => 1000;
 
-    public UpdateType[] AllowedUpdates { get; set; }
+    private readonly ILogger<BotHandler> _logger;
 
     public BotHandler(ILogger<BotHandler> logger)
     {
@@ -19,92 +18,57 @@ public class BotHandler : IUpdateHandler
     }
 
     #region ITelegramBotHandler
-    public Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+    public async Task<bool> HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
-        string ErrorMessage = exception switch
+        Console.WriteLine("BotHandler");
+
+        await OnUpdate(update);
+
+        switch (update.Type)
         {
-            //ApiRequestException apiRequestException => apiRequestException.Message,
-            ApiRequestException apiRequestException => $"Telegram API Error: [{apiRequestException.ErrorCode}] {apiRequestException.Message}",
-            _ => exception.Message,
-        };
+            case UpdateType.Message:
+                return update.Message != null && await OnMessage(botClient, update.Message);
 
-        _logger.LogError("{Message}", ErrorMessage);
-        return Task.CompletedTask;
-    }
-
-    public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await OnUpdate(update);
-
-            switch (update.Type)
-            {
-                case UpdateType.Message:
-                    await OnMessage(botClient, update.Message);
-                    break;
-
-                case UpdateType.CallbackQuery:
-                    await OnCallbackQuery(botClient, update.CallbackQuery);
-                    break;
-            }
+            case UpdateType.CallbackQuery:
+                return update.CallbackQuery != null && await OnCallbackQuery(botClient, update.CallbackQuery);
         }
-        catch (Exception exception)
-        {
-            await HandlePollingErrorAsync(botClient, exception, cancellationToken);
-        }
+        return false;
     }
 
 
 
-    public static async Task OnCallbackQuery(ITelegramBotClient botClient, CallbackQuery callbackQuery)
+    public static async Task<bool> OnCallbackQuery(ITelegramBotClient botClient, CallbackQuery callbackQuery)
     {
         await botClient.AnswerCallbackQueryAsync(
             callbackQueryId: callbackQuery.Id,
             text: $"Received {callbackQuery.Data}"
         );
 
-        await botClient.SendTextMessageAsync(
-            chatId: callbackQuery.Message.Chat.Id,
-            text: $"Received {callbackQuery.Data}"
-        );
+        if (callbackQuery.Message != null)
+        {
+            await botClient.SendTextMessageAsync(
+                chatId: callbackQuery.Message.Chat.Id,
+                text: $"Received {callbackQuery.Data}"
+            );
+        }
+
+        return true;
     }
 
-    public static async Task OnMessage(ITelegramBotClient botClient, Message message)
+    public static async Task<bool> OnMessage(ITelegramBotClient botClient, Message message)
     {
-        if (message == null || message.Type != MessageType.Text)
-            return;
+        if (message == null || message.Type != MessageType.Text || message.Text == null)
+            return false;
 
-        switch (message.Text.Split(' ').First())
+        return message.Text.Split(' ').First() switch
         {
-            // Send inline keyboard
-            case "/inline":
-                await SendInlineKeyboard(botClient, message);
-                break;
-
-            // send custom keyboard
-            case "/keyboard":
-                await SendReplyKeyboard(botClient, message);
-                break;
-
-            // send a photo
-            //case "/photo":
-            //    await SendDocument(message);
-            //    break;
-
-            // request location or contact
-            case "/request":
-                await RequestContactAndLocation(botClient, message);
-                break;
-
-            case "/password":
-                await ResetPassword(botClient, message);
-                break;
-
-            default:
-                await Usage(botClient, message);
-                break;
-        }
+            "/inline" => await SendInlineKeyboard(botClient, message),
+            "/keyboard" => await SendReplyKeyboard(botClient, message),
+            //"/photo" => await SendDocument(message);
+            "/request" => await RequestContactAndLocation(botClient, message),
+            "/password" => await ResetPassword(botClient, message),
+            _ => false,
+        };
     }
 
     public Task OnUpdate(Update update)
@@ -118,7 +82,7 @@ public class BotHandler : IUpdateHandler
 
     // Send inline keyboard
     // You can process responses in BotOnCallbackQueryReceived handler
-    private static async Task SendInlineKeyboard(ITelegramBotClient botClient, Message message)
+    private static async Task<bool> SendInlineKeyboard(ITelegramBotClient botClient, Message message)
     {
         await botClient.SendChatActionAsync(message.Chat.Id, ChatAction.Typing);
 
@@ -146,9 +110,11 @@ public class BotHandler : IUpdateHandler
             text: "Choose",
             replyMarkup: inlineKeyboard
         );
+
+        return true;
     }
 
-    private static async Task SendReplyKeyboard(ITelegramBotClient botClient, Message message)
+    private static async Task<bool> SendReplyKeyboard(ITelegramBotClient botClient, Message message)
     {
         var replyKeyboardMarkup = new ReplyKeyboardMarkup(
             new KeyboardButton[][]
@@ -165,6 +131,8 @@ public class BotHandler : IUpdateHandler
             replyMarkup: replyKeyboardMarkup
 
         );
+
+        return true;
     }
 
     //private async Task SendDocument(Message message)
@@ -183,48 +151,31 @@ public class BotHandler : IUpdateHandler
     //    }
     //}
 
-    private static async Task RequestContactAndLocation(ITelegramBotClient botClient, Message message)
+    private static async Task<bool> RequestContactAndLocation(ITelegramBotClient botClient, Message message)
     {
         var RequestReplyKeyboard = new ReplyKeyboardMarkup(new[]
         {
-                KeyboardButton.WithRequestLocation("Location"),
-                KeyboardButton.WithRequestContact("Contact"),
-            });
-
-
+            KeyboardButton.WithRequestLocation("Location"),
+            KeyboardButton.WithRequestContact("Contact"),
+        });
 
         await botClient.SendTextMessageAsync(
             chatId: message.Chat.Id,
             text: "Who or Where are you?",
             replyMarkup: RequestReplyKeyboard
         );
+
+        return true;
     }
 
-    private static async Task ResetPassword(ITelegramBotClient botClient, Message message)
+    private static async Task<bool> ResetPassword(ITelegramBotClient botClient, Message message)
     {
         await botClient.SendTextMessageAsync(
             chatId: message.Chat.Id,
             text: "Reply to this message with new password",
             replyMarkup: new ForceReplyMarkup()
         );
-    }
 
-    private static async Task Usage(ITelegramBotClient botClient, Message message)
-    {
-        Console.WriteLine(message.ReplyToMessage?.MessageId);
-
-
-
-        const string usage = "Usage:\n" +
-                                "/inline   - send inline keyboard\n" +
-                                "/keyboard - send custom keyboard\n" +
-                                //"/photo    - send a photo\n" +
-                                "/request  - request location or contact\n" +
-                                "/password  - request a reset password";
-        await botClient.SendTextMessageAsync(
-            chatId: message.Chat.Id,
-            text: usage,
-            replyMarkup: new ReplyKeyboardRemove()
-        );
+        return true;
     }
 }

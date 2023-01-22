@@ -1,14 +1,11 @@
-﻿using Telegram.Bot.Polling;
+﻿namespace TelegramBotService;
 
-namespace Telegram
+/// <summary>
+/// Options for configure telegram bot handler.
+/// </summary>
+public class TelegramBotOptions
 {
-    /// <summary>
-    /// Options for configure telegram bot handler.
-    /// </summary>
-    public class TelegramBotOptions<THandler> where THandler : IUpdateHandler
-    {
-        public string BotToken { get; set; }
+    public string BotToken { get; set; } = default!;
 
-        public HttpClient BotHttpClient { get; set; }
-    }
+    public HttpClient? BotHttpClient { get; set; }
 }

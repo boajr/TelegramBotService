@@ -2,60 +2,136 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
-namespace Telegram
-{
-    public class TelegramBotService<THandler> : TelegramBotClient, IHostedService, IDisposable
-        where THandler : IUpdateHandler
-    {
-        private readonly THandler _handler;
-        private readonly ILogger<TelegramBotService<THandler>> _logger;
-        private readonly CancellationTokenSource _stoppingCts = new CancellationTokenSource();
+namespace TelegramBotService;
 
-        public TelegramBotService(THandler handler, IOptions<TelegramBotOptions<THandler>> options, ILogger<TelegramBotService<THandler>> logger)
-            : base(options.Value.BotToken, options.Value.BotHttpClient)
+public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHostedService, IDisposable
+{
+    private readonly List<ITelegramBotHandler> _handlers = new();
+    private readonly ILogger<TelegramBotService> _logger;
+    private readonly CancellationTokenSource _stoppingCts = new();
+
+    public TelegramBotService(IOptions<TelegramBotOptions> options,
+                              IEnumerable<ITelegramBotHandler> handlers,
+                              ILogger<TelegramBotService> logger)
+        : base(options.Value.BotToken, options.Value.BotHttpClient)
+    {
+        foreach (ITelegramBotHandler handler in handlers)
         {
-            _handler = handler != null ? handler : throw new ArgumentNullException(nameof(handler));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            AddUpdateHandler(handler);
+        }
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public void AddUpdateHandler(ITelegramBotHandler handler)
+    {
+        int idx = _handlers.Count;
+        int s = 0;
+        int e = idx - 1;
+        int order = handler.Order;
+
+        while (e >= s)
+        {
+            idx = (s + e) / 2;
+            if (_handlers[idx].Order < order)
+            {
+                s = ++idx;
+            }
+            else
+            {
+                e = idx - 1;
+            }
         }
 
-        public async Task StartAsync(CancellationToken cancellationToken)
+        if (idx >= _handlers.Count)
+        {
+            _handlers.Add(handler);
+        }
+        else
+        {
+            _handlers.Insert(idx, handler);
+        }
+    }
+
+    public void RemoveUpdateHandler(ITelegramBotHandler handler)
+    {
+        _handlers.Remove(handler);
+    }
+
+    #region IUpdateHandler
+    public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+    {
+        foreach (ITelegramBotHandler handler in _handlers)
         {
             try
             {
-                // StartReceiving does not block the caller thread. Receiving is done on the ThreadPool.
-                var receiverOptions = new ReceiverOptions
+                if (await handler.HandleUpdateAsync(botClient, update, cancellationToken))
                 {
-                    AllowedUpdates = Array.Empty<UpdateType>() // receive all update types
-                };
-                if (!cancellationToken.IsCancellationRequested)
-                    this.StartReceiving(_handler, receiverOptions, _stoppingCts.Token);
-
-                User me = await this.GetMeAsync(cancellationToken);
-                _logger.LogInformation($"Connected as user {me.Username} (botId: {me.Id})");
+                    return;
+                }
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                _logger.LogError(ex.Message);
+                await HandlePollingErrorAsync(botClient, exception, cancellationToken);
             }
-
-            if (cancellationToken.IsCancellationRequested)
-                _stoppingCts.Cancel();
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken)
-        {
-            _logger.LogInformation("Service is shutting down...");
-            _stoppingCts.Cancel();
-            return Task.CompletedTask;
-        }
-
-        public void Dispose()
-        {
-            _stoppingCts.Cancel();
         }
     }
+
+    public Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+    {
+        string ErrorMessage = exception switch
+        {
+            ApiRequestException apiRequestException => apiRequestException.Message,
+            //ApiRequestException apiRequestException => $"Telegram API Error: [{apiRequestException.ErrorCode}] {apiRequestException.Message}",
+            _ => exception.Message,
+        };
+
+        _logger.LogError("{Message}", ErrorMessage);
+        return Task.CompletedTask;
+    }
+    #endregion
+
+    #region IHostedService
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            // StartReceiving does not block the caller thread. Receiving is done on the ThreadPool.
+            var receiverOptions = new ReceiverOptions
+            {
+                AllowedUpdates = Array.Empty<UpdateType>() // receive all update types
+            };
+            if (!cancellationToken.IsCancellationRequested)
+                this.StartReceiving(this, receiverOptions, _stoppingCts.Token);
+
+            User me = await this.GetMeAsync(cancellationToken);
+            _logger.LogInformation("Connected as user {Username} (botId: {Id})", me.Username, me.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("{Message}", ex.Message);
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+            _stoppingCts.Cancel();
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Service is shutting down...");
+        _stoppingCts.Cancel();
+        return Task.CompletedTask;
+    }
+    #endregion
+
+    #region IDisposable
+    public void Dispose()
+    {
+        _stoppingCts.Cancel();
+    }
+    #endregion
 }
