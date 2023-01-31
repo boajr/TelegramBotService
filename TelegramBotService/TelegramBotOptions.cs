@@ -1,4 +1,4 @@
-﻿namespace TelegramBotService;
+﻿namespace Boa.TelegramBotService;
 
 /// <summary>
 /// Options for configure telegram bot handler.

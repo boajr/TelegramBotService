@@ -7,7 +7,7 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
-namespace TelegramBotService;
+namespace Boa.TelegramBotService;
 
 public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHostedService, IDisposable
 {

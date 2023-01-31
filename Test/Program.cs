@@ -1,5 +1,5 @@
+using Boa.TelegramBotService;
 using Microsoft.AspNetCore.Hosting;
-using TelegramBotService;
 using Test;
 
 IHost host = Host.CreateDefaultBuilder(args)

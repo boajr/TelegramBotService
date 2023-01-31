@@ -1,7 +1,7 @@
 ﻿using Telegram.Bot;
 using Telegram.Bot.Types;
 
-namespace TelegramBotService
+namespace Boa.TelegramBotService
 {
     public interface ITelegramBotHandler
     {
