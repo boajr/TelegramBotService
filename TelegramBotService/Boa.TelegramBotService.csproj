@@ -4,6 +4,13 @@
     <TargetFramework>net7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Authors>boajr</Authors>
+    <Copyright>Copyright © Piero Boato 2023</Copyright>
+    <PackageProjectUrl>https://github.com/boajr/TelegramBotService</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/boajr/TelegramBotService</RepositoryUrl>
+    <Description>A simple AspNetCore service that runs a Telegram bot.</Description>
+    <PackageTags>Telegram;Bot;Service</PackageTags>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
