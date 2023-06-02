@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
@@ -12,18 +13,16 @@ namespace Boa.TelegramBotService;
 public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHostedService, IDisposable
 {
     private readonly List<ITelegramBotHandler> _handlers = new();
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<TelegramBotService> _logger;
     private readonly CancellationTokenSource _stoppingCts = new();
 
     public TelegramBotService(IOptions<TelegramBotOptions> options,
-                              IEnumerable<ITelegramBotHandler> handlers,
+                              IServiceProvider serviceProvider,
                               ILogger<TelegramBotService> logger)
         : base(options.Value.BotToken, options.Value.BotHttpClient)
     {
-        foreach (ITelegramBotHandler handler in handlers)
-        {
-            AddUpdateHandler(handler);
-        }
+        _serviceProvider = serviceProvider;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -65,7 +64,53 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
     #region IUpdateHandler
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
-        foreach (ITelegramBotHandler handler in _handlers)
+        // creo uno scope per poterne utilizzare i servizi
+        using IServiceScope scope = _serviceProvider.CreateScope();
+
+        // prelevo tutti i servizi registrati per gestire le richieste di telegram
+        IEnumerable<ITelegramBotHandler> servHandlers = scope.ServiceProvider.GetServices<ITelegramBotHandler>();
+
+        // creo un array che conterrà tutti i servizi e tutti gli handler che si sono registrati
+        int count = _handlers.Count;
+        ITelegramBotHandler[] hh = new ITelegramBotHandler[count + servHandlers.Count()];
+
+        // se ci sono handler registrati li copio nel nuovo array (sono già ordinati)
+        if (count > 0)
+        {
+            _handlers.CopyTo(hh);
+        }
+
+        // aggiungo all'array tutti i servizi ordinandoli
+        foreach (ITelegramBotHandler handler in servHandlers)
+        {
+            int idx = count;
+            int s = 0;
+            int e = count - 1;
+            int order = handler.Order;
+
+            while (e >= s)
+            {
+                idx = (s + e) / 2;
+                if (hh[idx].Order < order)
+                {
+                    s = ++idx;
+                }
+                else
+                {
+                    e = idx - 1;
+                }
+            }
+
+            if (idx < count)
+            {
+                Array.Copy(hh, idx, hh, idx + 1, count - idx);
+            }
+            hh[idx] = handler;
+            ++count;
+        }
+
+        // processo la richiesta
+        foreach (ITelegramBotHandler handler in hh)
         {
             try
             {
@@ -101,7 +146,7 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
         try
         {
             // StartReceiving does not block the caller thread. Receiving is done on the ThreadPool.
-            var receiverOptions = new ReceiverOptions
+            ReceiverOptions receiverOptions = new()
             {
                 AllowedUpdates = Array.Empty<UpdateType>() // receive all update types
             };
