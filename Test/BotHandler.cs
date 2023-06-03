@@ -6,23 +6,39 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Test;
 
-public class BotHandler : ITelegramBotHandler
+public class BotHandler1 : ITelegramBotHandler
 {
     public int Order => 1000;
 
-    private readonly ILogger<BotHandler> _logger;
+    private readonly Guid _id;
 
-    public BotHandler(ILogger<BotHandler> logger)
+    public BotHandler1()
     {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _id = Guid.NewGuid();
     }
 
-    #region ITelegramBotHandler
-    public async Task<bool> HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+    public virtual Task<bool> HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
-        Console.WriteLine("BotHandler");
+        Console.WriteLine(ToString() + ": " + _id);
+        return Task.FromResult(false);
+    }
+}
 
-        await OnUpdate(update);
+public class BotHandler2 : BotHandler1
+{
+}
+
+public class BotHandler3 : BotHandler1
+{
+}
+
+
+public class BotHandler4 : BotHandler1
+{
+    #region ITelegramBotHandler
+    public override async Task<bool> HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
+    {
+        await base.HandleUpdateAsync(botClient, update, cancellationToken);
 
         switch (update.Type)
         {
@@ -71,13 +87,6 @@ public class BotHandler : ITelegramBotHandler
         };
     }
 
-    public Task OnUpdate(Update update)
-    {
-        //Update e = eventArgs.Update;
-
-        _logger.LogInformation("OnUpdate: {Type}", update.Type);
-        return Task.CompletedTask;
-    }
     #endregion
 
     // Send inline keyboard

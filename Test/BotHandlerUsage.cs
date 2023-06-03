@@ -14,7 +14,7 @@ public class BotHandlerUsage : ITelegramBotHandler
 
     public async Task<bool> HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
-        Console.WriteLine("BotHandlerUsage");
+        Console.WriteLine(ToString());
 
         if (update.Type != UpdateType.Message || update.Message == null)
             return false;

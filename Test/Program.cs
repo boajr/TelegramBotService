@@ -12,7 +12,10 @@ IHost host = Host.CreateDefaultBuilder(args)
         });
 
         services.AddSingleton<ITelegramBotHandler, BotHandlerUsage>();
-        services.AddScoped<ITelegramBotHandler, BotHandler>();
+        services.AddSingleton<ITelegramBotHandler, BotHandler1>();
+        services.AddSingleton<ITelegramBotHandler, BotHandler2>();
+        services.AddScoped<ITelegramBotHandler, BotHandler3>();
+        services.AddScoped<ITelegramBotHandler, BotHandler4>();
     })
     .Build();
 
