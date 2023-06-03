@@ -36,7 +36,7 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
         while (e >= s)
         {
             idx = (s + e) / 2;
-            if (_handlers[idx].Order < order)
+            if (_handlers[idx].Order <= order)
             {
                 s = ++idx;
             }
@@ -68,30 +68,24 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
         using IServiceScope scope = _serviceProvider.CreateScope();
 
         // prelevo tutti i servizi registrati per gestire le richieste di telegram
-        IEnumerable<ITelegramBotHandler> servHandlers = scope.ServiceProvider.GetServices<ITelegramBotHandler>();
+        IEnumerable<ITelegramBotHandler> hh = scope.ServiceProvider.GetServices<ITelegramBotHandler>();
 
-        // creo un array che conterrà tutti i servizi e tutti gli handler che si sono registrati
-        int count = _handlers.Count;
-        ITelegramBotHandler[] hh = new ITelegramBotHandler[count + servHandlers.Count()];
-
-        // se ci sono handler registrati li copio nel nuovo array (sono già ordinati)
-        if (count > 0)
-        {
-            _handlers.CopyTo(hh);
-        }
+        // creo un array che conterrà tutti i servizi ordinati
+        ITelegramBotHandler[] servHandlers = new ITelegramBotHandler[hh.Count()];
+        int servCount = 0;
 
         // aggiungo all'array tutti i servizi ordinandoli
-        foreach (ITelegramBotHandler handler in servHandlers)
+        foreach (ITelegramBotHandler handler in hh)
         {
-            int idx = count;
+            int idx = servCount;
             int s = 0;
-            int e = count - 1;
+            int e = servCount - 1;
             int order = handler.Order;
 
             while (e >= s)
             {
                 idx = (s + e) / 2;
-                if (hh[idx].Order < order)
+                if (servHandlers[idx].Order <= order)
                 {
                     s = ++idx;
                 }
@@ -101,17 +95,40 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
                 }
             }
 
-            if (idx < count)
+            if (idx < servCount)
             {
-                Array.Copy(hh, idx, hh, idx + 1, count - idx);
+                Array.Copy(servHandlers, idx, servHandlers, idx + 1, servCount - idx);
             }
-            hh[idx] = handler;
-            ++count;
+            servHandlers[idx] = handler;
+            ++servCount;
         }
 
         // processo la richiesta
-        foreach (ITelegramBotHandler handler in hh)
+        int servIdx = 0;
+        int regIdx = 0;
+        while (servIdx < servCount || regIdx < _handlers.Count)
         {
+            ITelegramBotHandler handler;
+            if (servIdx < servCount && regIdx < _handlers.Count)
+            {
+                if (servHandlers[servIdx].Order <= _handlers[regIdx].Order)
+                {
+                    handler = servHandlers[servIdx++];
+                }
+                else
+                {
+                    handler = _handlers[regIdx++];
+                }
+            }
+            else if (servIdx < servCount)
+            {
+                handler = servHandlers[servIdx++];
+            }
+            else
+            {
+                handler = _handlers[regIdx++];
+            }
+
             try
             {
                 if (await handler.HandleUpdateAsync(botClient, update, cancellationToken))
