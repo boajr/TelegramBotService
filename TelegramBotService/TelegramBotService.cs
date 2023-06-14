@@ -131,14 +131,14 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
 
             try
             {
-                if (await handler.HandleUpdateAsync(botClient, update, cancellationToken))
+                if (await handler.HandleUpdateAsync(botClient, update, cancellationToken).ConfigureAwait(false))
                 {
                     return;
                 }
             }
             catch (Exception exception)
             {
-                await HandlePollingErrorAsync(botClient, exception, cancellationToken);
+                await HandlePollingErrorAsync(botClient, exception, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -170,7 +170,7 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
             if (!cancellationToken.IsCancellationRequested)
                 this.StartReceiving(this, receiverOptions, _stoppingCts.Token);
 
-            User me = await this.GetMeAsync(cancellationToken);
+            User me = await this.GetMeAsync(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Connected as user {Username} (botId: {Id})", me.Username, me.Id);
         }
         catch (Exception ex)
