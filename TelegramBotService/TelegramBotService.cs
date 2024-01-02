@@ -6,13 +6,12 @@ using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
 
 namespace Boa.TelegramBotService;
 
 public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHostedService, IDisposable
 {
-    private readonly List<ITelegramBotHandler> _handlers = new();
+    private readonly List<ITelegramBotHandler> _handlers = [];
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<TelegramBotService> _logger;
     private readonly CancellationTokenSource _stoppingCts = new();
@@ -165,7 +164,7 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
             // StartReceiving does not block the caller thread. Receiving is done on the ThreadPool.
             ReceiverOptions receiverOptions = new()
             {
-                AllowedUpdates = Array.Empty<UpdateType>() // receive all update types
+                AllowedUpdates = [] // receive all update types
             };
             if (!cancellationToken.IsCancellationRequested)
                 this.StartReceiving(this, receiverOptions, _stoppingCts.Token);

@@ -40,15 +40,12 @@ public class BotHandler4 : BotHandler1
     {
         await base.HandleUpdateAsync(botClient, update, cancellationToken);
 
-        switch (update.Type)
+        return update.Type switch
         {
-            case UpdateType.Message:
-                return update.Message != null && await OnMessage(botClient, update.Message);
-
-            case UpdateType.CallbackQuery:
-                return update.CallbackQuery != null && await OnCallbackQuery(botClient, update.CallbackQuery);
-        }
-        return false;
+            UpdateType.Message => update.Message != null && await OnMessage(botClient, update.Message),
+            UpdateType.CallbackQuery => update.CallbackQuery != null && await OnCallbackQuery(botClient, update.CallbackQuery),
+            _ => false,
+        };
     }
 
 
@@ -128,8 +125,8 @@ public class BotHandler4 : BotHandler1
         var replyKeyboardMarkup = new ReplyKeyboardMarkup(
             new KeyboardButton[][]
             {
-                    new KeyboardButton[] { "1.1", "1.2" },
-                    new KeyboardButton[] { "2.1", "2.2" },
+                    ["1.1", "1.2"],
+                    ["2.1", "2.2"],
             }//,
             //resizeKeyboard: true
         );

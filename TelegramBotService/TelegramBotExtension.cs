@@ -8,8 +8,7 @@ public static class TelegramBotExtensions
 {
     public static IServiceCollection AddTelegramBot(this IServiceCollection services, Action<TelegramBotOptions> setupAction)
     {
-        if (services == null)
-            throw new ArgumentNullException(nameof(services));
+        ArgumentNullException.ThrowIfNull(services);
 
         // crea la configurazione
         services.Configure(setupAction);
