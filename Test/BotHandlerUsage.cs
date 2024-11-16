@@ -27,7 +27,7 @@ public class BotHandlerUsage : ITelegramBotHandler
                 "/request  - request location or contact\n" +
                 "/password  - request a reset password";
 
-        await botClient.SendTextMessageAsync(
+        await botClient.SendMessage(
             chatId: update.Message.Chat.Id,
             text: response,
             replyMarkup: new ReplyKeyboardRemove(),

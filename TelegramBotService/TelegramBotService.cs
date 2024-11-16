@@ -137,12 +137,12 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
             }
             catch (Exception exception)
             {
-                await HandlePollingErrorAsync(botClient, exception, cancellationToken).ConfigureAwait(false);
+                await HandleErrorAsync(botClient, exception, HandleErrorSource.HandleUpdateError, cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
-    public Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
+    public Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, HandleErrorSource source, CancellationToken cancellationToken)
     {
         string ErrorMessage = exception switch
         {
@@ -169,7 +169,7 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
             if (!cancellationToken.IsCancellationRequested)
                 this.StartReceiving(this, receiverOptions, _stoppingCts.Token);
 
-            User me = await this.GetMeAsync(cancellationToken).ConfigureAwait(false);
+            User me = await this.GetMe(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Connected as user {Username} (botId: {Id})", me.Username, me.Id);
         }
         catch (Exception ex)
