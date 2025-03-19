@@ -19,7 +19,11 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
     public TelegramBotService(IOptions<TelegramBotOptions> options,
                               IServiceProvider serviceProvider,
                               ILogger<TelegramBotService> logger)
-        : base(options.Value.BotToken, options.Value.BotHttpClient)
+        : base(new TelegramBotClientOptions(options.Value.BotToken, options.Value.BotBaseUrl, options.Value.BotUseTestEnvironment)
+        {
+            RetryThreshold = options.Value.BotRetryThreshold,
+            RetryCount = options.Value.BotRetryCount
+        }, options.Value.BotHttpClient)
     {
         _serviceProvider = serviceProvider;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -169,6 +173,8 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
             if (!cancellationToken.IsCancellationRequested)
                 this.StartReceiving(this, receiverOptions, _stoppingCts.Token);
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingCts.Token, cancellationToken);
+            cancellationToken = cts.Token;
             User me = await this.GetMe(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Connected as user {Username} (botId: {Id})", me.Username, me.Id);
         }
