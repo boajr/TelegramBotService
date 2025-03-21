@@ -2,7 +2,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
+#pragma warning disable IDE0130 // Namespace does not match folder structure
 namespace Microsoft.AspNetCore.Hosting;
+#pragma warning restore IDE0130 // Namespace does not match folder structure
 
 public static class TelegramBotExtensions
 {
