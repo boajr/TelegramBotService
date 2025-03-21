@@ -3,31 +3,21 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
-using Telegram.Bot.Exceptions;
-using Telegram.Bot.Polling;
+using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
 
 namespace Boa.TelegramBotService;
 
-public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHostedService, IDisposable
+public sealed class TelegramBotService(IOptions<TelegramBotOptions> options,
+                                       IServiceProvider serviceProvider,
+                                       ILogger<TelegramBotService> logger) : BackgroundService
 {
     private readonly List<ITelegramBotHandler> _handlers = [];
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<TelegramBotService> _logger;
-    private readonly CancellationTokenSource _stoppingCts = new();
+    private readonly IOptions<TelegramBotOptions> _options = options ?? throw new ArgumentNullException(nameof(options));
+    private readonly IServiceProvider _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+    private readonly ILogger<TelegramBotService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-    public TelegramBotService(IOptions<TelegramBotOptions> options,
-                              IServiceProvider serviceProvider,
-                              ILogger<TelegramBotService> logger)
-        : base(new TelegramBotClientOptions(options.Value.BotToken, options.Value.BotBaseUrl, options.Value.BotUseTestEnvironment)
-        {
-            RetryThreshold = options.Value.BotRetryThreshold,
-            RetryCount = options.Value.BotRetryCount
-        }, options.Value.BotHttpClient)
-    {
-        _serviceProvider = serviceProvider;
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    public TelegramBotClient? BotClient { get; private set; }
 
     public void AddUpdateHandler(ITelegramBotHandler handler)
     {
@@ -64,141 +54,160 @@ public sealed class TelegramBotService : TelegramBotClient, IUpdateHandler, IHos
         _handlers.Remove(handler);
     }
 
-    #region IUpdateHandler
-    public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
-    {
-        // creo uno scope per poterne utilizzare i servizi
-        using IServiceScope scope = _serviceProvider.CreateScope();
-
-        // prelevo tutti i servizi registrati per gestire le richieste di telegram
-        IEnumerable<ITelegramBotHandler> hh = scope.ServiceProvider.GetServices<ITelegramBotHandler>();
-
-        // creo un array che conterrà tutti i servizi ordinati
-        ITelegramBotHandler[] servHandlers = new ITelegramBotHandler[hh.Count()];
-        int servCount = 0;
-
-        // aggiungo all'array tutti i servizi ordinandoli
-        foreach (ITelegramBotHandler handler in hh)
-        {
-            int idx = servCount;
-            int s = 0;
-            int e = servCount - 1;
-            int order = handler.Order;
-
-            while (e >= s)
-            {
-                idx = (s + e) / 2;
-                if (servHandlers[idx].Order <= order)
-                {
-                    s = ++idx;
-                }
-                else
-                {
-                    e = idx - 1;
-                }
-            }
-
-            if (idx < servCount)
-            {
-                Array.Copy(servHandlers, idx, servHandlers, idx + 1, servCount - idx);
-            }
-            servHandlers[idx] = handler;
-            ++servCount;
-        }
-
-        // processo la richiesta
-        int servIdx = 0;
-        int regIdx = 0;
-        while (servIdx < servCount || regIdx < _handlers.Count)
-        {
-            ITelegramBotHandler handler;
-            if (servIdx < servCount && regIdx < _handlers.Count)
-            {
-                if (servHandlers[servIdx].Order <= _handlers[regIdx].Order)
-                {
-                    handler = servHandlers[servIdx++];
-                }
-                else
-                {
-                    handler = _handlers[regIdx++];
-                }
-            }
-            else if (servIdx < servCount)
-            {
-                handler = servHandlers[servIdx++];
-            }
-            else
-            {
-                handler = _handlers[regIdx++];
-            }
-
-            try
-            {
-                if (await handler.HandleUpdateAsync(botClient, update, cancellationToken).ConfigureAwait(false))
-                {
-                    return;
-                }
-            }
-            catch (Exception exception)
-            {
-                await HandleErrorAsync(botClient, exception, HandleErrorSource.HandleUpdateError, cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
-
-    public Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, HandleErrorSource source, CancellationToken cancellationToken)
-    {
-        string ErrorMessage = exception switch
-        {
-            ApiRequestException apiRequestException => apiRequestException.Message,
-            //ApiRequestException apiRequestException => $"Telegram API Error: [{apiRequestException.ErrorCode}] {apiRequestException.Message}",
-            _ => exception.Message,
-        };
-
-        _logger.LogError("{Message}", ErrorMessage);
-        return Task.CompletedTask;
-    }
-    #endregion
-
-    #region IHostedService
-    public async Task StartAsync(CancellationToken cancellationToken)
+    #region BackgroundService
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
-            // StartReceiving does not block the caller thread. Receiving is done on the ThreadPool.
-            ReceiverOptions receiverOptions = new()
+            // crea il TelegramBotClient
+            BotClient = new(new TelegramBotClientOptions(_options.Value.BotToken, _options.Value.BotBaseUrl, _options.Value.BotUseTestEnvironment)
             {
-                AllowedUpdates = [] // receive all update types
-            };
-            if (!cancellationToken.IsCancellationRequested)
-                this.StartReceiving(this, receiverOptions, _stoppingCts.Token);
+                RetryThreshold = _options.Value.BotRetryThreshold,
+                RetryCount = _options.Value.BotRetryCount
+            }, _options.Value.BotHttpClient, stoppingToken);
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingCts.Token, cancellationToken);
-            cancellationToken = cts.Token;
-            User me = await this.GetMe(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Connected as user {Username} (botId: {Id})", me.Username, me.Id);
+            // prelevo le mie credenziali per stamparle nei log (ripasso lo stoppingToken anche se non servirebbe, così il VisualStudio è contento)
+            try
+            {
+                User me = await BotClient.GetMe(stoppingToken).ConfigureAwait(false);
+                _logger.LogInformation("Connected as user {Username} (botId: {Id})", me.Username, me.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Unable to get bot credentials: {Message}", ex.Message);
+            }
+
+            // creo la richiesta di update
+            var request = new GetUpdatesRequest
+            {
+                Limit = 100,
+                Offset = 0,
+                AllowedUpdates = [],
+            };
+
+            // entro nel ciclo di polling delle nuove richieste
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                request.Timeout = (int)BotClient.Timeout.TotalSeconds;
+
+                try
+                {
+                    // chiedo al server gli ultimi update, se non ce ne sono passo alla richiesta successiva
+                    Update[] updates = await BotClient.SendRequest(request, stoppingToken).ConfigureAwait(false);
+                    if (updates.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    // creo uno scope per poterne utilizzare i servizi
+                    using IServiceScope scope = _serviceProvider.CreateScope();
+
+                    // prelevo tutti i servizi registrati per gestire le richieste di telegram
+                    IEnumerable<ITelegramBotHandler> hh = scope.ServiceProvider.GetServices<ITelegramBotHandler>();
+
+                    // creo un array che conterrà tutti i servizi ordinati
+                    ITelegramBotHandler[] servHandlers = new ITelegramBotHandler[hh.Count()];
+                    int servCount = 0;
+
+                    // aggiungo all'array tutti i servizi ordinandoli
+                    foreach (ITelegramBotHandler handler in hh)
+                    {
+                        int idx = servCount;
+                        int s = 0;
+                        int e = servCount - 1;
+                        int order = handler.Order;
+
+                        while (e >= s)
+                        {
+                            idx = (s + e) / 2;
+                            if (servHandlers[idx].Order <= order)
+                            {
+                                s = ++idx;
+                            }
+                            else
+                            {
+                                e = idx - 1;
+                            }
+                        }
+
+                        if (idx < servCount)
+                        {
+                            Array.Copy(servHandlers, idx, servHandlers, idx + 1, servCount - idx);
+                        }
+                        servHandlers[idx] = handler;
+                        ++servCount;
+                    }
+
+                    // processo tutte le richieste appena lette
+                    foreach (var update in updates)
+                    {
+                        // aggiorno il numero della prossima richiesta da chiedere al server
+                        request.Offset = update.Id + 1;
+
+                        // processo la richiesta
+                        int servIdx = 0;
+                        int regIdx = 0;
+                        while (!stoppingToken.IsCancellationRequested && (servIdx < servCount || regIdx < _handlers.Count))
+                        {
+                            // cerco qual è il prossimo handler in ordine di priorità
+                            ITelegramBotHandler handler;
+                            if (servIdx < servCount && regIdx < _handlers.Count)
+                            {
+                                if (servHandlers[servIdx].Order <= _handlers[regIdx].Order)
+                                {
+                                    handler = servHandlers[servIdx++];
+                                }
+                                else
+                                {
+                                    handler = _handlers[regIdx++];
+                                }
+                            }
+                            else if (servIdx < servCount)
+                            {
+                                handler = servHandlers[servIdx++];
+                            }
+                            else
+                            {
+                                handler = _handlers[regIdx++];
+                            }
+
+                            // chiamo l'handler, se ritorna true passo alla prossima richiesta
+                            try
+                            {
+                                if (await handler.HandleUpdateAsync(BotClient, update, stoppingToken).ConfigureAwait(false))
+                                {
+                                    break;
+                                }
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                continue;
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError("{Message}", ex.Message);
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError("{Message}", ex.Message);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ignored
         }
         catch (Exception ex)
         {
             _logger.LogError("{Message}", ex.Message);
         }
-
-        if (cancellationToken.IsCancellationRequested)
-            _stoppingCts.Cancel();
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Service is shutting down...");
-        _stoppingCts.Cancel();
-        return Task.CompletedTask;
-    }
-    #endregion
-
-    #region IDisposable
-    public void Dispose()
-    {
-        _stoppingCts.Cancel();
     }
     #endregion
 }
